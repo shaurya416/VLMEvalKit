@@ -1,3 +1,4 @@
+import ast
 import datetime
 import os
 import os.path as osp
@@ -56,7 +57,8 @@ def istype(s, type):
     if isinstance(s, type):
         return True
     try:
-        return isinstance(eval(s), type)
+        # Dataset fields are data: parse literals only, never execute them.
+        return isinstance(ast.literal_eval(s), type)
     except Exception:
         return False
 
@@ -252,7 +254,7 @@ def version_cmp(v1, v2, op='eq'):
 
 def toliststr(s):
     if isinstance(s, str) and len(s) > 1 and (s[0] == '[') and (s[-1] == ']'):
-        return [str(x) for x in eval(s)]
+        return [str(x) for x in ast.literal_eval(s)]
     elif isinstance(s, str):
         return [s]
     elif isinstance(s, list):

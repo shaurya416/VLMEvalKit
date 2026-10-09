@@ -1,3 +1,4 @@
+import ast
 from collections import defaultdict
 
 import pandas as pd
@@ -23,6 +24,22 @@ except Exception as e:
 FAIL_MSG = 'Failed to obtain answer via API.'
 
 
+_ARITHMETIC_NODES = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Add, ast.Sub, ast.Mult, ast.Div,
+                     ast.FloorDiv, ast.Mod, ast.Pow, ast.UAdd, ast.USub)
+
+
+def _eval_number(expr):
+    # Evaluate a plain arithmetic answer such as '3/11' or '-2.5e3'. Anything else, including a
+    # model response that is Python code, raises instead of being executed.
+    tree = ast.parse(expr.strip(), mode='eval')
+    for node in ast.walk(tree):
+        is_number = (isinstance(node, ast.Constant)
+                     and isinstance(node.value, (int, float, complex)))
+        if not (is_number or isinstance(node, _ARITHMETIC_NODES)):
+            raise ValueError(f'Not an arithmetic expression: {expr}')
+    return eval(compile(tree, '<answer>', 'eval'), {'__builtins__': {}})
+
+
 @timeout_decorator.timeout(30, use_signals=False)
 def is_equal(asw: str, gt_asw: str) -> bool:
     if not isinstance(asw, str) != str or not isinstance(gt_asw, str):
@@ -33,8 +50,8 @@ def is_equal(asw: str, gt_asw: str) -> bool:
     if gt_asw == asw:
         return True
     try:
-        a = eval(gt_asw)
-        b = eval(asw)
+        a = _eval_number(gt_asw)
+        b = _eval_number(asw)
         if abs(a - b) < 1e-6:
             return True
     except Exception:
@@ -42,7 +59,7 @@ def is_equal(asw: str, gt_asw: str) -> bool:
     try:
         a = latex2sympy(gt_asw)
         b = latex2sympy(asw)
-        if abs(eval(str(a)) - eval(str(b))) < 1e-6:
+        if abs(_eval_number(str(a)) - _eval_number(str(b))) < 1e-6:
             return True
         if abs(a - b) < 1e-6:
             return True

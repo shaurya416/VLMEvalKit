@@ -18,7 +18,8 @@ def get_dimension_rating(data_path):
         if item['task_type'] not in result_board:
             result_board[item['task_type']] = [0, 0]
         result_board[item['task_type']][1] += 1
-        if item['score']:
+        # A failed prediction or judge is scored -1 and a missing prediction NaN; both are truthy.
+        if item['score'] == 1:
             result_board[item['task_type']][0] += 1
 
     correct = 0

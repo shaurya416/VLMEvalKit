@@ -603,6 +603,10 @@ def extract_characters_regex(s, choices=['(A)', '(B)', '(C)', '(D)', '(E)']):
         return ''
     matches = re.search(r'[ABCDE]', s)
     if matches is None:
+        # Map a bare lowercase option such as "b" or "(b)" back to its choice. An empty or
+        # punctuation-only remainder is a substring of every choice and must not match one.
+        if not re.search(r'[a-z]', s.lower()):
+            return ''
         for choice in choices:
             if s.lower() in choice.lower():
                 return choice[1]

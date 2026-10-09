@@ -12,7 +12,9 @@ logger = get_logger(__name__)
 # Matches verbose chain-of-thought answers such as:
 #   "The correct answer is **B**. Here's why: ..."
 #   "The answer is C."
-_VERBOSE_ANSWER_RE = re.compile(r"(?i)(?:correct\s+)?answer\s+is\s+\**([ABCD])\**")
+# Only the leading phrase is case-insensitive: the option must be a standalone uppercase letter,
+# so "the answer is a dog" or "the answer is clearly B" do not yield A / C.
+_VERBOSE_ANSWER_RE = re.compile(r"(?i:(?:correct\s+)?answer\s+is)\s+\**([ABCD])\**(?![A-Za-z0-9])")
 
 
 def can_infer_option(answer, choices):

@@ -168,3 +168,44 @@ def test_24points_does_not_execute_response(mme_reasoning, probe):
     response = "__import__('vlmeval_probe').hits.append(1)or(24)=24"
     assert mme_reasoning.judge_24points_function(response, None, {'init_cards': [1, 24]}) is False
     assert probe.hits == []
+
+
+@pytest.fixture
+def mmlongbenchdoc(stubbed_vlmeval, stub):
+    stub('torchvision', transforms=types.SimpleNamespace())
+    stub('torchvision.transforms')
+    stub('PIL', Image=types.SimpleNamespace(), ImageDraw=types.SimpleNamespace(),
+         ImageFont=types.SimpleNamespace())
+    stub('vlmeval.smp', decode_base64_to_image_file=_noop, dump=_noop,
+         encode_image_to_base64=_noop, get_logger=logging.getLogger, istype=_noop,
+         listinstr=_noop, load=_noop, process_punctuation=_noop, read_ok=_noop, toliststr=_noop)
+    vqa_eval = _load('_vqa_eval_under_test', 'vlmeval/dataset/utils/vqa_eval.py')
+    stub('vlmeval.dataset.utils', build_judge=_noop,
+         levenshtein_distance=vqa_eval.levenshtein_distance)
+    stub('vlmeval.dataset.utils.judge_cache', get_judge_cache_file=_noop,
+         get_judge_detail_file=_noop, get_judge_named_legacy_cache_file=_noop,
+         get_judge_score_file=_noop, load_judge_cache=_noop, run_cached_tasks=_noop)
+    stub('vlmeval.dataset.image_base', ImageBaseDataset=object)
+    return _load('vlmeval.dataset.mmlongbenchdoc', 'vlmeval/dataset/mmlongbenchdoc.py')
+
+
+def _list_score(module, gt, pred):
+    # MMLongBench_acc scores an answer that eval_score cannot parse as 0.
+    try:
+        return module.eval_score(gt, pred, 'List')
+    except Exception:
+        return 0.0
+
+
+def test_mmlongbench_list_answer_does_not_execute_prediction(mmlongbenchdoc, probe):
+    # The extracted answer is the judge's copy of the model's own answer.
+    pred = "[__import__('vlmeval_probe').hits.append(1), 'Asia']"
+    assert _list_score(mmlongbenchdoc, "['Europe', 'Asia']", pred) == 0.0
+    assert probe.hits == []
+
+
+def test_mmlongbench_list_answers_still_scored(mmlongbenchdoc):
+    assert _list_score(mmlongbenchdoc, "['Europe', 'Asia']", "['asia', 'europe']") == 1.0
+    assert _list_score(mmlongbenchdoc, "['2019', '2020']", "[2020, 2019]") == 1.0
+    assert _list_score(mmlongbenchdoc, "['Europe', 'Asia']", "['Asia']") == 0.0
+    assert _list_score(mmlongbenchdoc, "['Europe', 'Asia']", "['Europe', 'Asia'") == 0.0

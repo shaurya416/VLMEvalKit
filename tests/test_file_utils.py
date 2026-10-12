@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 
 import numpy as np
+import pandas as pd
 import pytest
 
 
@@ -60,6 +61,65 @@ def test_dump_json_encodes_numpy_values(file_utils, tmp_path):
                     str(target))
     assert json.loads(target.read_text()) == {'Overall': 0.5, 'hit': True, 'counts': [0, 1]}
     assert not (tmp_path / 'acc.pkl').exists()
+
+
+def _predictions(rows=5000, bad_row=3000):
+    # A lone surrogate (half of an emoji) in one model answer cannot be encoded as UTF-8.
+    preds = [f'answer {i}' for i in range(rows)]
+    preds[bad_row] = 'broken emoji \ud83d'
+    return pd.DataFrame({'index': range(rows), 'prediction': preds})
+
+
+@pytest.mark.parametrize('ext', ['tsv', 'csv', 'json'])
+def test_failed_dump_leaves_no_truncated_file_behind(file_utils, tmp_path, ext):
+    data = _predictions()
+    target = tmp_path / f'Model_Bench.{ext}'
+    file_utils.dump(data, str(target))
+    # The write fails part-way; a truncated table at the target would load as a shorter result.
+    assert sorted(os.listdir(tmp_path)) == ['Model_Bench.pkl']
+    assert len(file_utils.load(str(tmp_path / 'Model_Bench.pkl'))) == len(data)
+
+
+def test_failed_dump_removes_the_earlier_result(file_utils, tmp_path):
+    target = tmp_path / 'Model_Bench.tsv'
+    file_utils.dump(pd.DataFrame({'index': [0], 'prediction': ['stale']}), str(target))
+    file_utils.dump(_predictions(), str(target))
+    assert sorted(os.listdir(tmp_path)) == ['Model_Bench.pkl']
+
+
+def test_interrupted_dump_keeps_the_previous_file(file_utils, tmp_path, monkeypatch):
+    target = tmp_path / 'Model_Bench_checkpoint.pkl'
+    file_utils.dump({'0': 'first answer'}, str(target))
+
+    def interrupted(data, stream):
+        stream.write(b'\x80\x04')
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(file_utils.pickle, 'dump', interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        file_utils.dump({'0': 'first answer', '1': 'second answer'}, str(target))
+    assert os.listdir(tmp_path) == ['Model_Bench_checkpoint.pkl']
+    assert file_utils.load(str(target)) == {'0': 'first answer'}
+
+
+def test_unpicklable_checkpoint_keeps_the_previous_file(file_utils, tmp_path):
+    target = tmp_path / 'Model_Bench_checkpoint.pkl'
+    file_utils.dump({'0': 'first answer'}, str(target))
+    with pytest.raises(Exception):
+        file_utils.dump({'0': 'first answer', '1': lambda: None}, str(target))
+    assert os.listdir(tmp_path) == ['Model_Bench_checkpoint.pkl']
+    assert file_utils.load(str(target)) == {'0': 'first answer'}
+
+
+def test_dump_writes_through_a_symlinked_target(file_utils, tmp_path):
+    run_file = tmp_path / 'run' / 'Model_Bench.tsv'
+    run_file.parent.mkdir()
+    link = tmp_path / 'Model_Bench.tsv'
+    file_utils.dump(pd.DataFrame({'index': [0], 'prediction': ['old']}), str(run_file))
+    link.symlink_to(run_file)
+    file_utils.dump(pd.DataFrame({'index': [0], 'prediction': ['new']}), str(link))
+    assert link.is_symlink()
+    assert list(file_utils.load(str(run_file))['prediction']) == ['new']
 
 
 def _write_then_fail(url, filename=None, reporthook=None):

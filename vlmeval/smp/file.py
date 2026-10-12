@@ -10,6 +10,7 @@ import pickle
 import re
 import shutil
 import time
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -149,14 +150,16 @@ class NumpyEncoder(json.JSONEncoder):
 # LOAD & DUMP
 def dump(data, f, **kwargs):
     def dump_pkl(data, pth, **kwargs):
-        pickle.dump(data, open(pth, 'wb'))
+        with open(pth, 'wb') as fout:
+            pickle.dump(data, fout)
 
     def dump_json(data, pth, **kwargs):
         # 处理 DataFrame 对象
         if isinstance(data, pd.DataFrame):
             # 转换为 records 格式（列表格式）
             data = data.to_dict('records')
-        json.dump(data, open(pth, 'w'), indent=4, ensure_ascii=False, cls=NumpyEncoder)
+        with open(pth, 'w') as fout:
+            json.dump(data, fout, indent=4, ensure_ascii=False, cls=NumpyEncoder)
 
     def dump_jsonl(data, f, **kwargs):
         lines = [json.dumps(x, ensure_ascii=False, cls=NumpyEncoder) for x in data]
@@ -177,15 +180,32 @@ def dump(data, f, **kwargs):
     def dump_tsv(data, f, quoting=csv.QUOTE_ALL):
         data.to_csv(f, sep='\t', index=False, encoding='utf-8', quoting=quoting)
 
+    def write(handler, pth):
+        # Write to a side file and move it into place only once complete: a handler that fails
+        # part-way leaves a truncated file, and load() reads a truncated table back as complete.
+        # A symlinked target is written through, as opening it for writing did.
+        ext = pth.split('.')[-1]
+        pth = osp.realpath(pth)
+        part_file = f'{pth}.{uuid.uuid4().hex}.part.{ext}'
+        try:
+            handler(data, part_file, **kwargs)
+            os.replace(part_file, pth)
+        finally:
+            if osp.exists(part_file):
+                os.remove(part_file)
+
     handlers = dict(pkl=dump_pkl, json=dump_json, jsonl=dump_jsonl, xlsx=dump_xlsx, csv=dump_csv, tsv=dump_tsv)
     suffix = f.split('.')[-1]
     try:
-        return handlers[suffix](data, f, **kwargs)
+        return write(handlers[suffix], f)
     except Exception:
         # if dump failed, fallback to pkl format
         pkl_file = f.rsplit('.', 1)[0] + '.pkl'
+        # `f` does not hold `data`: an earlier file left there would be loaded as this result.
+        if pkl_file != f and suffix in handlers and osp.exists(f):
+            os.remove(f)
         logger.warning(f'Failed to dump to {suffix} format, falling back to pkl: {pkl_file}')
-        return dump_pkl(data, pkl_file, **kwargs)
+        return write(dump_pkl, pkl_file)
 
 
 def get_pred_file_format():

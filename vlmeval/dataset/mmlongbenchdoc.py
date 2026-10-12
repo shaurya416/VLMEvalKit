@@ -1,3 +1,4 @@
+import ast
 import base64
 import io
 import logging
@@ -330,12 +331,13 @@ def eval_score(gt, pred, answer_type):
         else:
             score = anls_compute(gt, pred)
     else:
+        # `pred` is extracted from the model's answer: parse list literals, never execute them.
         if isinstance(gt, str) and gt.startswith('['):
-            gt = eval(gt)
+            gt = ast.literal_eval(gt)
         if not isinstance(gt, list):
             gt = [gt]
         if isinstance(pred, str) and pred.startswith('['):
-            pred = eval(pred)
+            pred = ast.literal_eval(pred)
         if not isinstance(pred, list):
             pred = [pred]
         print(len(gt), len(pred))

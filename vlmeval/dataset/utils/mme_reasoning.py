@@ -1,5 +1,8 @@
+import ast
 import json
+import operator
 import re
+from fractions import Fraction
 
 import pandas as pd
 import sympy
@@ -1034,10 +1037,36 @@ def calculate_answer_function_yinyang(response_list, answer=None, special_info=N
     print("Yinyang: All rules satisfied")
     return True
 
+
+_POINTS24_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+}
+
+
+def _eval_points24_formula(node):
+    # Exact rational arithmetic over the four operations the game allows: with floats a valid
+    # solution such as 8/(3-8/3) evaluates to 23.99999999999999 and was scored wrong. The
+    # formula comes from the model's response, so nothing else in it is evaluated.
+    if isinstance(node, ast.Expression):
+        return _eval_points24_formula(node.body)
+    if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+        return Fraction(node.value)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        value = _eval_points24_formula(node.operand)
+        return -value if isinstance(node.op, ast.USub) else value
+    if isinstance(node, ast.BinOp) and type(node.op) in _POINTS24_OPS:
+        return _POINTS24_OPS[type(node.op)](
+            _eval_points24_formula(node.left), _eval_points24_formula(node.right))
+    raise ValueError(f'Unsupported element in 24-point formula: {ast.dump(node)}')
+
+
 def judge_24points_function(response, answer=None, special_info=None):
     left_formula = response.replace(' ', '').split('=')[0]
     try:
-        if eval(left_formula) == 24:
+        if _eval_points24_formula(ast.parse(left_formula.strip(), mode='eval')) == 24:
             numbers = re.findall(r'\d+', left_formula)
             numbers = list(map(int, numbers))
             numbers.sort()

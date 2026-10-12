@@ -138,3 +138,33 @@ def test_list_fields_still_parsed(misc):
     assert misc.istype("['cat', 'dog']", list) is True
     assert misc.istype('7', int) is True
     assert misc.istype('cat', list) is False
+
+
+@pytest.fixture
+def mme_reasoning(stubbed_vlmeval, stub):
+    stub('sympy')
+    return _load('vlmeval.dataset.utils.mme_reasoning', 'vlmeval/dataset/utils/mme_reasoning.py')
+
+
+def test_24points_accepts_solutions_with_fractional_steps(mme_reasoning):
+    judge = mme_reasoning.judge_24points_function
+    # In floating point both formulas miss 24 (23.99999999999999 and 24.000000000000007).
+    assert judge('8/(3-8/3)=24', None, {'init_cards': [3, 3, 8, 8]}) is True
+    assert judge('4/(1-5/6)=24', None, {'init_cards': [1, 4, 5, 6]}) is True
+
+
+def test_24points_still_checks_value_and_cards(mme_reasoning):
+    judge = mme_reasoning.judge_24points_function
+    assert judge('(13-9-1)*8=24', None, {'init_cards': [1, 8, 9, 13]}) is True
+    assert judge('9/3*1*8=24', None, {'init_cards': [1, 3, 8, 9]}) is True
+    assert judge('\t(13-9-1)*8=24\n', None, {'init_cards': [1, 8, 9, 13]}) is True
+    assert judge('(13-9)*8=24', None, {'init_cards': [8, 9, 13]}) is False
+    assert judge('4*6=24', None, {'init_cards': [4, 6, 1, 1]}) is False
+    assert judge('8/(3-3)=24', None, {'init_cards': [3, 3, 8]}) is False
+
+
+def test_24points_does_not_execute_response(mme_reasoning, probe):
+    # Spaces are stripped before evaluation, so the payload is written without any.
+    response = "__import__('vlmeval_probe').hits.append(1)or(24)=24"
+    assert mme_reasoning.judge_24points_function(response, None, {'init_cards': [1, 24]}) is False
+    assert probe.hits == []

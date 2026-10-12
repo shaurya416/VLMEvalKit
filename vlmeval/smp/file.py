@@ -132,9 +132,10 @@ class NumpyEncoder(json.JSONEncoder):
                       (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64,
                        np.uint8, np.uint16, np.uint32, np.uint64)):
             return int(obj)
-        elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+        # np.float_ and np.complex_ (aliases of float64 / complex128) were removed in NumPy 2.0.
+        elif isinstance(obj, (np.float16, np.float32, np.float64)):
             return float(obj)
-        elif isinstance(obj, (np.complex_, np.complex64, np.complex128)):
+        elif isinstance(obj, (np.complex64, np.complex128)):
             return {'real': obj.real, 'imag': obj.imag}
         elif isinstance(obj, (np.ndarray,)):
             return obj.tolist()
@@ -297,6 +298,7 @@ def load(f, fmt=None):
 
 def download_file(url, filename=None):
     import urllib.request
+    import uuid
 
     from tqdm import tqdm
 
@@ -309,9 +311,13 @@ def download_file(url, filename=None):
     if filename is None:
         filename = url.split('/')[-1]
 
+    # Download to a side file and move it into place only once complete: callers treat an
+    # existing file as already downloaded, so a truncated one must never sit at `filename`.
+    part_file = f'{filename}.{uuid.uuid4().hex}.part'
     try:
         with DownloadProgressBar(unit='B', unit_scale=True, miniters=1, desc=url.split('/')[-1]) as t:
-            urllib.request.urlretrieve(url, filename=filename, reporthook=t.update_to)
+            urllib.request.urlretrieve(url, filename=part_file, reporthook=t.update_to)
+        os.replace(part_file, filename)
     except Exception as e:
         import logging
         logging.warning(f'{type(e)}: {e}')
@@ -326,6 +332,9 @@ def download_file(url, filename=None):
                 raise Exception(f'Failed to download {url}')
         else:
             raise Exception(f'Failed to download {url}')
+    finally:
+        if osp.exists(part_file):
+            os.remove(part_file)
 
     return filename
 
